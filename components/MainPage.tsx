@@ -31,7 +31,7 @@ export default function MainPage() {
     // TODO: if (device && (device.localName === "Dispositivo" || device.name === "Dispositivo")) {
 
     if (device) {
-      console.warn("Device found! Data: ", device.id, " - ", device.name);
+      //console.warn("Device found! Data: ", device.id, " - ", device.name);
       setAllDevices((prevState: Device[]) => {
         if (!isDuplicteDevice(prevState, device)) {
           return [...prevState, device];
@@ -42,24 +42,20 @@ export default function MainPage() {
   });
 
   return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "start",
-        alignItems: "center",
-        padding: 24,
-      }}>
+    <View style={styles.containerMain}>
       <Text>Bluetooh Low Energy + React Native</Text>
       <Text>Central Mode - Listing Devices</Text>
-      <Button title="Clear Devices list" onPress={() => setAllDevices([])}></Button>
-      <Button title="Start Scanning" onPress={scanForPeripherals} />
-      <Button
-        title="Stop Scanning"
-        onPress={() => {
-          console.log("Stop Scanning");
-          bleManager.stopDeviceScan();
-        }}
-      />
+      <View style={styles.containerButtons}>
+        <Button title="Clear" onPress={() => setAllDevices([])}></Button>
+        <Button title="Start" onPress={scanForPeripherals} />
+        <Button
+          title="Stop"
+          onPress={() => {
+            console.log("Stop Scanning");
+            bleManager.stopDeviceScan();
+          }}
+        />
+      </View>
       <Text>Devices</Text>
       <View style={styles.containerDevices}>
         <Collapsible title="Devices">

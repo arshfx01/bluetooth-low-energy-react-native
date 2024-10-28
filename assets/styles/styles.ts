@@ -1,17 +1,21 @@
 import { Button, StyleSheet } from "react-native";
 
 const styles = StyleSheet.create({
-  container: {
+  containerMain: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    flexDirection: "column",
     padding: 24,
   },
   containerDevices: {
-    flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "blue",
+    padding: 24,
+  },
+  containerButtons: {
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    alignItems: "center",
     padding: 24,
   },
   text: {

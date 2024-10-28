@@ -4,6 +4,8 @@ import { Button, Text, View } from "react-native";
 import { BleManager } from "react-native-ble-plx";
 import styles from "../assets/styles/styles";
 import { Collapsible } from "./Collapsible";
+import { ScrollView } from "react-native-gesture-handler";
+import ParallaxScrollView from "./ParallaxScrollView";
 
 export const bleManager = new BleManager();
 
@@ -44,8 +46,9 @@ export default function MainPage() {
   }
 
   return (
-    <View style={styles.containerMain}>
-      <Text>Central Mode - Listing Devices</Text>
+    <ParallaxScrollView>
+      <Text style={styles.textTitle}>Central Mode</Text>
+      <Text style={styles.textTitle}>Listing Devices</Text>
       <View style={styles.containerButtons}>
         <Button title="Start" onPress={scanForPeripherals} />
         {/* TODO: Implement this button
@@ -58,14 +61,16 @@ export default function MainPage() {
         /> */}
         <Button title="Clear" onPress={() => setAllDevices([])}></Button>
       </View>
-      <Text>Devices</Text>
       <View style={styles.containerDevices}>
         {allDevices.map((device) => (
-          <Text key={device.id}>
-            📲 - {device.id} - {device.name}
-          </Text>
+          <>
+            <Text key={device.id}>
+              📲 - {device.id} - {device.name}
+            </Text>
+            <Button title="Connect"></Button>
+          </>
         ))}
       </View>
-    </View>
+    </ParallaxScrollView>
   );
 }

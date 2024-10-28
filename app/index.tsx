@@ -13,7 +13,7 @@ export default function Index() {
   const [mode, setMode] = useState<"central" | "peripheral">("central");
   return (
     <View style={styles.containerScreen}>
-      <Text>Bluetooh Low Energy + React Native</Text>
+      <Text style={styles.textTitle}>BLE + React Native</Text>
       <Button title="Central Mode" onPress={() => setMode("central")} />
       <Button title="Peripheral Mode" onPress={() => setMode("peripheral")} />
       {mode == "central" ? <MainPage /> : null}

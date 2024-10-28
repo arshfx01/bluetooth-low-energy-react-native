@@ -15,12 +15,22 @@ const styles = StyleSheet.create({
   containerDevices: {
     width: "100%",
     justifyContent: "center",
+    padding: 12,
   },
   containerButtons: {
     flexDirection: "row",
     justifyContent: "space-evenly",
     alignItems: "center",
     padding: 24,
+  },
+  viewDevice: {
+    flexDirection: "row",
+  },
+
+  textTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    textAlign: "center",
   },
 });
 

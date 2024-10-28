@@ -2,9 +2,13 @@
 node_modules/
 .expo/
 
-# Build directories
+# Build files
 dist/
 web-build/
+android/
+ios/
+*.apk
+*.aab
 
 # Logs
 npm-debug.log*

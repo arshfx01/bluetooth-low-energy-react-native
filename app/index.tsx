@@ -1,15 +1,9 @@
-import { Text, View } from "react-native";
+import MainPage from "../components/MainPage";
+import { requestPermissions } from "../hooks/useBLE";
+
+// Request BLE permissions on the first time it opens
+requestPermissions();
 
 export default function Index() {
-  return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
-      <Text>Edit app/index.tsx to edit this screen.</Text>
-    </View>
-  );
+  return <MainPage />;
 }

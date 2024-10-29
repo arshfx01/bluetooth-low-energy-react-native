@@ -13,7 +13,7 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   containerDevices: {
-    flex: 3,
+    flex: 1,
     width: "100%",
     justifyContent: "center",
     padding: 12,

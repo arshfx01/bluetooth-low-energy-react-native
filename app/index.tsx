@@ -10,10 +10,9 @@ requestPermissions();
 
 export default function Index() {
   // Choose mode
-  const [mode, setMode] = useState<"central" | "peripheral">("central");
+  const [mode, setMode] = useState<"central" | "peripheral" | "start">("start");
   return (
     <View style={styles.containerScreen}>
-      <Text style={styles.textTitle}>BLE + React Native</Text>
       <Button title="Central Mode" onPress={() => setMode("central")} />
       <Button title="Peripheral Mode" onPress={() => setMode("peripheral")} />
       {mode == "central" ? <MainPage /> : null}

@@ -16,6 +16,8 @@ interface Device {
   name: string;
 }
 
+let showDevicesWithoutName = false;
+
 export default function MainPage() {
   const [allDevices, setAllDevices] = useState<Device[]>([]);
 
@@ -30,10 +32,12 @@ export default function MainPage() {
         console.error(error);
       }
 
-      // TODO: Create a input to change this "dispositivo" for any other name, for filter the devices
-      // TODO: if (device && (device.localName === "Dispositivo" || device.name === "Dispositivo")) {
+      // TODO: Create a input for filter the devices
 
       if (device) {
+        if (!showDevicesWithoutName && !device.name) {
+          return;
+        }
         //console.warn("Device found! Data: ", device.id, " - ", device.name);
         setAllDevices((prevState: Device[]) => {
           if (!isDuplicteDevice(prevState, device)) {
@@ -60,6 +64,13 @@ export default function MainPage() {
           }}
         /> */}
         <Button title="Clear" onPress={() => setAllDevices([])}></Button>
+        <Button
+          title={showDevicesWithoutName ? "Hide Nameless" : "Show All"}
+          onPress={() => {
+            showDevicesWithoutName = !showDevicesWithoutName;
+            setAllDevices([]);
+            scanForPeripherals();
+          }}></Button>
       </View>
       <View style={styles.containerDevices}>
         {allDevices.map((device) => (
@@ -67,7 +78,7 @@ export default function MainPage() {
             <Text key={device.id}>
               📲 - {device.id} - {device.name}
             </Text>
-            <Button title="Connect"></Button>
+            <Button key={`button${device.id}`} title="Connect"></Button>
           </>
         ))}
       </View>

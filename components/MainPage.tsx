@@ -98,7 +98,7 @@ export default function MainPage() {
             onPress={() => {
               showDevicesWithoutName = !showDevicesWithoutName;
               setAllDevices([...allDevices]);
-              console.warn("Showing Devices Nameless: ", showDevicesWithoutName);
+              // !DEBUG: console.warn("Showing Devices Nameless: ", showDevicesWithoutName);
             }}></Button>
         </View>
         <View style={styles.containerDevices}>

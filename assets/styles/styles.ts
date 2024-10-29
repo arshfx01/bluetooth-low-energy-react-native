@@ -13,6 +13,7 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   containerDevices: {
+    flex: 3,
     width: "100%",
     justifyContent: "center",
     padding: 12,
@@ -22,6 +23,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-evenly",
     alignItems: "center",
     padding: 24,
+  },
+  containerConnectedDevice: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "center",
+    padding: 12,
+    backgroundColor: "#f0f0f0",
   },
   viewDevice: {
     flexDirection: "row",

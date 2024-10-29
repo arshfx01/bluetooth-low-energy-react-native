@@ -20,6 +20,7 @@ let showDevicesWithoutName = false;
 
 export default function MainPage() {
   const [allDevices, setAllDevices] = useState<Device[]>([]);
+  const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
 
   // Managers Central Mode
   const isDuplicteDevice = (devices: Device[], nextDevice: Device) =>
@@ -50,12 +51,13 @@ export default function MainPage() {
   }
 
   return (
-    <ParallaxScrollView>
-      <Text style={styles.textTitle}>Central Mode</Text>
-      <Text style={styles.textTitle}>Listing Devices</Text>
-      <View style={styles.containerButtons}>
-        <Button title="Start" onPress={scanForPeripherals} />
-        {/* TODO: Implement this button
+    <>
+      <ParallaxScrollView>
+        <Text style={styles.textTitle}>Central Mode</Text>
+        <Text style={styles.textTitle}>Listing Devices</Text>
+        <View style={styles.containerButtons}>
+          <Button title="Start" onPress={scanForPeripherals} />
+          {/* TODO: Implement this button
         <Button
           title="Stop"
           onPress={() => {
@@ -63,25 +65,31 @@ export default function MainPage() {
             bleManager.stopDeviceScan;
           }}
         /> */}
-        <Button title="Clear" onPress={() => setAllDevices([])}></Button>
-        <Button
-          title={showDevicesWithoutName ? "Hide Nameless" : "Show All"}
-          onPress={() => {
-            showDevicesWithoutName = !showDevicesWithoutName;
-            setAllDevices([]);
-            scanForPeripherals();
-          }}></Button>
-      </View>
-      <View style={styles.containerDevices}>
-        {allDevices.map((device) => (
-          <>
-            <Text key={device.id}>
-              📲 - {device.id} - {device.name}
-            </Text>
-            <Button key={`button${device.id}`} title="Connect"></Button>
-          </>
-        ))}
-      </View>
-    </ParallaxScrollView>
+          <Button title="Clear" onPress={() => setAllDevices([])}></Button>
+          <Button
+            title={showDevicesWithoutName ? "Hide Nameless" : "Show Nameless"}
+            onPress={() => {
+              showDevicesWithoutName = !showDevicesWithoutName;
+              setAllDevices([]);
+              scanForPeripherals();
+            }}></Button>
+        </View>
+        <View style={styles.containerDevices}>
+          {allDevices.map((device) => (
+            <>
+              <Text key={device.id}>
+                📲 - {device.id} - {device.name}
+              </Text>
+              <Button key={`button${device.id}`} title="Connect"></Button>
+            </>
+          ))}
+        </View>
+      </ParallaxScrollView>
+      {connectedDevice && (
+        <View style={styles.containerConnectedDevice}>
+          <Text>Device Infos</Text>
+        </View>
+      )}
+    </>
   );
 }

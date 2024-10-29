@@ -4,13 +4,19 @@ Project for demonstrate the use of Bluetooh Low Energy with React Native.
 Video demonstration: https://youtu.be/NkNMT-esVKY
 
 -React Native
+
 -Java
+
 -Android
+
 -BLE-Bluetooh Low Energy
+
 -Expo
 
 GitHub Repositorie: github.com/antoniovini47/test-bluetooh-low-energy-react-native
+
 Project for reference: github.com/dotintent/react-native-ble-plx
+
 Tutorial: expo.dev/blog/how-to-build-a-bluetooth-low-energy-powered-expo-app
 
 # Welcome to your Expo app 👋

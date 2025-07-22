@@ -34,6 +34,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-dev-client",
       [
         "expo-router"
       ],
@@ -53,9 +54,13 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {
+        "origin": false
+      },
       "eas": {
-        "projectId": "7b67d300-25a6-4e5d-900f-1c3dab1b52a5"
+        "projectId": "9caed22f-643d-47b2-8d53-ed8be1c0786f"
       }
-    }
+    },
+    "owner": "thehussein01"
   }
 }

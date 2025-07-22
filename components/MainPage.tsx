@@ -1,29 +1,47 @@
 import React from "react";
 import { useState } from "react";
-import { Button, Text, View } from "react-native";
-import { BleManager, Device, BleError, Characteristic } from "react-native-ble-plx";
+import {
+  Button,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
+import {
+  BleManager,
+  Device,
+  BleError,
+  Characteristic,
+} from "react-native-ble-plx";
 import styles from "../assets/styles/styles";
 import ParallaxScrollView from "./ParallaxScrollView";
 import { Base64 } from "js-base64";
 
 export const bleManager = new BleManager();
 let showDevicesWithoutName = false;
-const DATA_SERVICE_UUID = "9800"; // * Get from the device manufacturer - 9800 for the BLE iOs Tester App "MyBLESim"
-const CHARACTERISTIC_UUID = "9801"; // * Get from the device manufacturer - 9801-9805 for the BLE iOs Tester App "MyBLESim"
+const DATA_SERVICE_UUID = "9800";
+const CHARACTERISTIC_UUID = "9801";
 
 export default function MainPage() {
   const [allDevices, setAllDevices] = useState<Device[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
-  const [dataReceived, setDataReceived] = useState<string>("...waiting.");
+  const [dataReceived, setDataReceived] = useState<string>(
+    "Waiting for data..."
+  );
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
 
-  // Managers Central Mode - Scanning for devices
   const isDuplicteDevice = (devices: Device[], nextDevice: Device) =>
     devices.findIndex((device) => nextDevice.id === device.id) > -1;
+
   function scanForPeripherals() {
+    setIsScanning(true);
     console.log("Scanning for peripherals...");
     bleManager.startDeviceScan(null, null, (error, device) => {
       if (error) {
         console.error(error);
+        setIsScanning(false);
       }
       if (device) {
         setAllDevices((prevState: Device[]) => {
@@ -36,17 +54,27 @@ export default function MainPage() {
     });
   }
 
-  // Decoding the data received from the device and defining the callback
+  function stopScanning() {
+    bleManager.stopDeviceScan();
+    setIsScanning(false);
+  }
+
   async function startStreamingData(device: Device) {
     if (device) {
-      device.monitorCharacteristicForService(DATA_SERVICE_UUID, CHARACTERISTIC_UUID, onDataUpdate);
+      device.monitorCharacteristicForService(
+        DATA_SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        onDataUpdate
+      );
     } else {
       console.log("No Device Connected");
     }
   }
 
-  // Called when data is received on the connected device
-  const onDataUpdate = (error: BleError | null, characteristic: Characteristic | null) => {
+  const onDataUpdate = (
+    error: BleError | null,
+    characteristic: Characteristic | null
+  ) => {
     if (error) {
       console.error(error);
       return;
@@ -55,82 +83,152 @@ export default function MainPage() {
       return;
     }
 
-    // * IMPORTANT: The BLE iOs App "MyBLESim" is taking the input value, converting into asc2, and sending the base64 encoded value
-    // * So, to get 4, I should insert 52 in the app, and it will send the base64 encoded value of 4
-    // * To get 7, I should insert 55 in the app, and it will send the base64 encoded value of 7
-    // * and so on...
-
     const dataInput = Base64.decode(characteristic.value);
     setDataReceived(dataInput);
   };
 
-  // Managers Central Mode - Connecting to a device
   async function connectToDevice(device: Device) {
+    setIsConnecting(true);
     try {
       const deviceConnection = await bleManager.connectToDevice(device.id);
       setConnectedDevice(deviceConnection);
       await deviceConnection.discoverAllServicesAndCharacteristics();
-      bleManager.stopDeviceScan();
+      stopScanning();
       startStreamingData(deviceConnection);
     } catch (e) {
       console.error("FAILED TO CONNECT", e);
+    } finally {
+      setIsConnecting(false);
+    }
+  }
+
+  function disconnectDevice() {
+    if (connectedDevice) {
+      bleManager.cancelDeviceConnection(connectedDevice.id);
+      setConnectedDevice(null);
+      setDataReceived("Disconnected. Waiting for data...");
     }
   }
 
   return (
-    <>
-      <ParallaxScrollView>
-        <Text style={styles.textTitle}>Central Mode</Text>
-        <Text style={styles.textTitle}>Listing Devices</Text>
-        <View style={styles.containerButtons}>
-          <Button title="Start" onPress={scanForPeripherals} />
-          {/* TODO: Implement this button
-        <Button
-          title="Stop"
-          onPress={() => {
-            console.log("Stop Scanning");
-            bleManager.stopDeviceScan;
-          }}
-        /> */}
-          <Button title="Clear" onPress={() => setAllDevices([])}></Button>
-          <Button
-            title={showDevicesWithoutName ? "Hide Nameless" : "Show Nameless"}
+    <View style={styles.containerScreen}>
+      <ScrollView contentContainerStyle={styles.scrollContainer}>
+        <Text style={styles.textTitle}>BLE Device Scanner</Text>
+
+        {/* Connection Status */}
+        {connectedDevice ? (
+          <View style={styles.connectionStatus}>
+            <View style={[styles.statusIndicator, styles.connected]} />
+            <Text style={styles.statusText}>
+              Connected to: {connectedDevice.name || "Unnamed Device"}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.connectionStatus}>
+            <View style={[styles.statusIndicator, styles.disconnected]} />
+            <Text style={styles.statusText}>Not connected</Text>
+          </View>
+        )}
+
+        {/* Data Display */}
+        <View style={styles.dataContainer}>
+          <Text style={styles.dataLabel}>Received Data:</Text>
+          <View style={styles.dataValueContainer}>
+            <Text style={styles.dataValue}>{dataReceived}</Text>
+          </View>
+        </View>
+
+        {/* Control Buttons */}
+        <View style={styles.buttonGroup}>
+          {!isScanning ? (
+            <TouchableOpacity
+              style={[styles.button, styles.primaryButton]}
+              onPress={scanForPeripherals}
+            >
+              <Text style={styles.buttonText}>Scan Devices</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.button, styles.secondaryButton]}
+              onPress={stopScanning}
+            >
+              <Text style={styles.buttonText}>Stop Scan</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[styles.button, styles.outlineButton]}
             onPress={() => {
               showDevicesWithoutName = !showDevicesWithoutName;
               setAllDevices([...allDevices]);
-              // !DEBUG: console.warn("Showing Devices Nameless: ", showDevicesWithoutName);
-            }}></Button>
+            }}
+          >
+            <Text style={styles.outlineButtonText}>
+              {showDevicesWithoutName ? "Hide Nameless" : "Show Nameless"}
+            </Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.containerDevices}>
-          {allDevices.map((device) => {
-            if (showDevicesWithoutName || device.name) {
-              return (
-                <React.Fragment key={device.id}>
-                  <Text>
-                    📲 - {device.id} - {device.name}
-                  </Text>
-                  <Button
-                    key={`button${device.id}`}
-                    title="Connect"
-                    onPress={() => connectToDevice(device)}
-                  />
-                </React.Fragment>
-              );
-            }
-            return null;
-          })}
-        </View>
-      </ParallaxScrollView>
-      {connectedDevice && (
-        <View style={styles.containerConnectedDevice}>
-          <Text style={styles.textTitle}>Connected to Device: </Text>
-          <View style={styles.containerDevices}>
-            <Text>ID: {connectedDevice.id}</Text>
-            <Text>Name: {connectedDevice.name}</Text>
-            <Text>Data Received: {dataReceived} </Text>
+
+        {/* Device List */}
+        <Text style={styles.sectionTitle}>Available Devices</Text>
+        {isScanning && allDevices.length === 0 && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4A90E2" />
+            <Text style={styles.loadingText}>Scanning for devices...</Text>
           </View>
-        </View>
-      )}
-    </>
+        )}
+
+        {allDevices.length === 0 && !isScanning ? (
+          <Text style={styles.emptyText}>
+            No devices found. Press "Scan Devices" to start.
+          </Text>
+        ) : (
+          <View style={styles.deviceList}>
+            {allDevices.map((device) => {
+              if (showDevicesWithoutName || device.name) {
+                return (
+                  <View key={device.id} style={styles.deviceCard}>
+                    <View style={styles.deviceInfo}>
+                      <Text style={styles.deviceName}>
+                        {device.name || "Unnamed Device"}
+                      </Text>
+                      <Text style={styles.deviceId}>{device.id}</Text>
+                    </View>
+                    {connectedDevice?.id === device.id ? (
+                      <TouchableOpacity
+                        style={[styles.deviceButton, styles.disconnectButton]}
+                        onPress={disconnectDevice}
+                        disabled={isConnecting}
+                      >
+                        {isConnecting ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.deviceButtonText}>
+                            Disconnect
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.deviceButton, styles.connectButton]}
+                        onPress={() => connectToDevice(device)}
+                        disabled={isConnecting}
+                      >
+                        {isConnecting ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.deviceButtonText}>Connect</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              }
+              return null;
+            })}
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }

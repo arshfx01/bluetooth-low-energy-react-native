@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import {
   BleManager,
@@ -31,6 +32,8 @@ export default function MainPage() {
   );
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [inputValue, setInputValue] = useState("");
+  const [lastSent, setLastSent] = useState<string | null>(null);
 
   const isDuplicteDevice = (devices: Device[], nextDevice: Device) =>
     devices.findIndex((device) => nextDevice.id === device.id) > -1;
@@ -110,6 +113,23 @@ export default function MainPage() {
     }
   }
 
+  // Send data to peripheral
+  async function sendDataToPeripheral() {
+    if (!connectedDevice || !inputValue) return;
+    try {
+      const base64Value = Base64.encode(inputValue);
+      await connectedDevice.writeCharacteristicWithResponseForService(
+        DATA_SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        base64Value
+      );
+      setLastSent(inputValue);
+      setInputValue("");
+    } catch (e) {
+      console.error("Failed to send data:", e);
+    }
+  }
+
   return (
     <View style={styles.containerScreen}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -137,6 +157,37 @@ export default function MainPage() {
             <Text style={styles.dataValue}>{dataReceived}</Text>
           </View>
         </View>
+
+        {/* Send Data Input */}
+        {connectedDevice && (
+          <View style={{ marginBottom: 16 }}>
+            <TextInput
+              style={{
+                borderWidth: 1,
+                borderColor: "#ccc",
+                borderRadius: 8,
+                padding: 10,
+                marginBottom: 8,
+                color: "#fff",
+                backgroundColor: "#222",
+              }}
+              placeholder="Type message to send"
+              placeholderTextColor="#888"
+              value={inputValue}
+              onChangeText={setInputValue}
+            />
+            <Button
+              title="Send Data"
+              onPress={sendDataToPeripheral}
+              disabled={!inputValue}
+            />
+            {lastSent && (
+              <Text style={{ color: "#4A90E2", marginTop: 6 }}>
+                Last sent: {lastSent}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Control Buttons */}
         <View style={styles.buttonGroup}>

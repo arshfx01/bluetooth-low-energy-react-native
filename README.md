@@ -147,6 +147,19 @@ npx patch-package
 - Follow the prompts to set up your own keystore/credentials if needed.
 - Download and install the APK on your device.
 
+### 5. **Run the App After Installing the Build (EAS Dev Client Workflow)**
+
+- On your computer, start the Metro server for the Dev Client build:
+  ```sh
+  npx expo start --dev-client
+  ```
+- A QR code will appear in your terminal or browser.
+- On your phone, open the camera app and scan the QR code.
+- Tap the link that appears; it will open your installed EAS Dev Client and load the BLE Messenger app.
+- On first launch, grant all requested permissions (Bluetooth, Location, etc.) for full functionality.
+- If the app doesn't open, make sure your phone and computer are on the same Wi-Fi network and the Dev Client is installed.
+- If you have issues, try restarting Metro (`Ctrl+C` then rerun the command), or reinstall the Dev Client APK.
+
 ---
 
 ## ⚡️ Native Code Changes (Java)
@@ -157,6 +170,39 @@ npx patch-package
   ```
 - **Do NOT change the Gradle settings** in this repo unless you know what you're doing. They are patched for compatibility with modern Expo/React Native builds.
 - After making native changes, re-run `npx patch-package react-native-ble-peripheral` and commit the new patch.
+
+---
+
+## 🧭 User Flow
+
+1. **Launch the App**
+
+   - Open the app on your Android device. You will see a modern tab bar to select between Central and Peripheral modes.
+
+2. **Choose a Mode**
+
+   - **Central (Client):**
+     - Tap the 'Central' tab.
+     - The app scans for nearby BLE peripherals advertising the correct service.
+     - Select a device from the list to connect.
+     - Once connected, a chat interface appears.
+     - Type a message in the input bar and tap send. Messages are sent to the connected peripheral and displayed in the chat.
+     - Received messages from the peripheral appear as chat bubbles.
+     - Tap 'Disconnect' to end the session and return to the device list.
+   - **Peripheral (Server):**
+     - Tap the 'Peripheral' tab.
+     - The app starts advertising as a BLE peripheral with a chat service.
+     - When a central device connects and sends a message, it appears in the chat area.
+     - You can view logs and status, but sending messages from the peripheral is not supported (due to library limitations).
+     - Stop advertising to end the session.
+
+3. **Switching Roles**
+
+   - You can switch between Central and Peripheral modes at any time using the tab bar.
+   - For two-way chat, run the app on two devices: one as Central, one as Peripheral.
+
+4. **Permissions**
+   - The app will request Bluetooth and location permissions as needed. Grant all permissions for full functionality.
 
 ---
 

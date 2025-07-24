@@ -34,7 +34,6 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-native": "0.74.5",
-    "react-native-ble-manager": "^12.1.5",
     "react-native-ble-peripheral": "^2.0.1",
     "react-native-ble-plx": "^3.2.1",
     "react-native-gesture-handler": "~2.16.1",

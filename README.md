@@ -149,6 +149,17 @@ npx patch-package
 
 ---
 
+## ⚡️ Native Code Changes (Java)
+
+- If you make changes to the Java code (e.g., in `node_modules/react-native-ble-peripheral/android/`), you need to rebuild the native app for local testing:
+  ```sh
+  npx expo run:android
+  ```
+- **Do NOT change the Gradle settings** in this repo unless you know what you're doing. They are patched for compatibility with modern Expo/React Native builds.
+- After making native changes, re-run `npx patch-package react-native-ble-peripheral` and commit the new patch.
+
+---
+
 ## Contributing
 
 - If you make changes to the BLE native code, re-run `npx patch-package` and commit the new patch.

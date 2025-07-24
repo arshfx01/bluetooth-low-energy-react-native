@@ -8,6 +8,8 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
+  NativeEventEmitter,
+  NativeModules,
 } from "react-native";
 import { Buffer } from "buffer";
 import BlePeripheral from "react-native-ble-peripheral";
@@ -111,11 +113,28 @@ export default function PeripheralPage() {
 
   // Cleanup
   useEffect(() => {
+    // Listen for central write events
+    const eventEmitter = new NativeEventEmitter(NativeModules.BLEPeripheral);
+    const subscription = eventEmitter.addListener("onCentralWrite", (event) => {
+      if (event && event.data) {
+        // Convert int array to string (assuming UTF-8)
+        const bytes = event.data;
+        let str = "";
+        try {
+          str = String.fromCharCode(...bytes);
+        } catch (e) {
+          str = bytes.join(",");
+        }
+        setLastReceived(str);
+        addLog(`Received from central: ${str}`);
+      }
+    });
     return () => {
       if (isAdvertising) {
         addLog("Component unmounting - cleaning up...");
         stopAdvertising();
       }
+      subscription.remove();
     };
   }, [isAdvertising]);
 

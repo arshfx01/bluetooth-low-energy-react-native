@@ -30,7 +30,7 @@ index 9b5638c..de0889d 100644
  }
  
 diff --git a/node_modules/react-native-ble-peripheral/android/src/main/java/com/himelbrand/ble/peripheral/RNBLEModule.java b/node_modules/react-native-ble-peripheral/android/src/main/java/com/himelbrand/ble/peripheral/RNBLEModule.java
-index 71a5f60..0963535 100644
+index 71a5f60..7012c45 100644
 --- a/node_modules/react-native-ble-peripheral/android/src/main/java/com/himelbrand/ble/peripheral/RNBLEModule.java
 +++ b/node_modules/react-native-ble-peripheral/android/src/main/java/com/himelbrand/ble/peripheral/RNBLEModule.java
 @@ -22,7 +22,7 @@ import android.content.Context;
@@ -64,3 +64,17 @@ index 71a5f60..0963535 100644
              if (responseNeeded) {
                  mGattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value);
              }
+@@ -244,4 +250,13 @@ public class RNBLEModule extends ReactContextBaseJavaModule{
+         promise.resolve(this.advertising);
+     }
+ 
++    @ReactMethod
++    public void addListener(String eventName) {
++        // Required for RN built-in Event Emitter
++    }
++
++    @ReactMethod
++    public void removeListeners(Integer count) {
++        // Required for RN built-in Event Emitter
++    }
+ }

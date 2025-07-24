@@ -21,8 +21,8 @@ import { Base64 } from "js-base64";
 
 export const bleManager = new BleManager();
 let showDevicesWithoutName = false;
-const DATA_SERVICE_UUID = "9800";
-const CHARACTERISTIC_UUID = "9801";
+const DATA_SERVICE_UUID = "00009800-0000-1000-8000-00805f9b34fb";
+const CHARACTERISTIC_UUID = "00009801-0000-1000-8000-00805f9b34fb";
 
 export default function MainPage() {
   const [allDevices, setAllDevices] = useState<Device[]>([]);

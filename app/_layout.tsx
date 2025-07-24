@@ -5,13 +5,18 @@ export default function RootLayout() {
     <Stack>
       <Stack.Screen
         options={{
-          title: "BLE + React Native",
+          title: "BLE Messenger",
           headerStyle: {
-            backgroundColor: "#000000",
+            backgroundColor: "#181A20",
+            borderBottomWidth: 0,
+            elevation: 0,
           },
-          headerTintColor: "#fff",
+          headerTintColor: "#4A90E2",
           headerTitleStyle: {
             fontWeight: "bold",
+            fontSize: 22,
+            letterSpacing: 1.2,
+            textAlign: "center",
           },
         }}
         name="index"

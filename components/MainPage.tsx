@@ -1,13 +1,16 @@
-import React from "react";
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Button,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  Animated,
+  Easing,
 } from "react-native";
 import {
   BleManager,
@@ -15,40 +18,69 @@ import {
   BleError,
   Characteristic,
 } from "react-native-ble-plx";
-import styles from "../assets/styles/styles";
-import ParallaxScrollView from "./ParallaxScrollView";
 import { Base64 } from "js-base64";
+import { MaterialIcons, Ionicons, Feather } from "@expo/vector-icons";
+import styles from "../assets/styles/styles";
 
 export const bleManager = new BleManager();
-let showDevicesWithoutName = false;
 const DATA_SERVICE_UUID = "00009800-0000-1000-8000-00805f9b34fb";
 const CHARACTERISTIC_UUID = "00009801-0000-1000-8000-00805f9b34fb";
 
 export default function MainPage() {
   const [allDevices, setAllDevices] = useState<Device[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
-  const [dataReceived, setDataReceived] = useState<string>(
-    "Waiting for data..."
-  );
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [inputValue, setInputValue] = useState("");
-  const [lastSent, setLastSent] = useState<string | null>(null);
+  const [chatHistory, setChatHistory] = useState<
+    { text: string; timestamp: string; type: "sent" | "received" }[]
+  >([]);
+  const [showDeviceList, setShowDeviceList] = useState(true);
+  const [showDevicesWithoutName, setShowDevicesWithoutName] = useState(false);
+  const [fadeAnim] = useState(new Animated.Value(0));
+  const [pulseAnim] = useState(new Animated.Value(1));
 
-  const isDuplicteDevice = (devices: Device[], nextDevice: Device) =>
+  // Animation effects
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+
+    if (isScanning) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.2,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isScanning]);
+
+  const isDuplicateDevice = (devices: Device[], nextDevice: Device) =>
     devices.findIndex((device) => nextDevice.id === device.id) > -1;
 
   function scanForPeripherals() {
+    setAllDevices([]);
     setIsScanning(true);
-    console.log("Scanning for peripherals...");
     bleManager.startDeviceScan(null, null, (error, device) => {
       if (error) {
-        console.error(error);
         setIsScanning(false);
       }
-      if (device) {
+      if (device && (showDevicesWithoutName || device.name)) {
         setAllDevices((prevState: Device[]) => {
-          if (!isDuplicteDevice(prevState, device)) {
+          if (!isDuplicateDevice(prevState, device)) {
             return [...prevState, device];
           }
           return prevState;
@@ -69,8 +101,6 @@ export default function MainPage() {
         CHARACTERISTIC_UUID,
         onDataUpdate
       );
-    } else {
-      console.log("No Device Connected");
     }
   }
 
@@ -78,16 +108,20 @@ export default function MainPage() {
     error: BleError | null,
     characteristic: Characteristic | null
   ) => {
-    if (error) {
-      console.error(error);
-      return;
-    } else if (!characteristic?.value) {
-      console.warn("No Data was received!");
-      return;
-    }
+    if (error || !characteristic?.value) return;
 
     const dataInput = Base64.decode(characteristic.value);
-    setDataReceived(dataInput);
+    setChatHistory((prev) => [
+      ...prev,
+      {
+        text: dataInput,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        type: "received",
+      },
+    ]);
   };
 
   async function connectToDevice(device: Device) {
@@ -97,9 +131,10 @@ export default function MainPage() {
       setConnectedDevice(deviceConnection);
       await deviceConnection.discoverAllServicesAndCharacteristics();
       stopScanning();
+      setShowDeviceList(false);
       startStreamingData(deviceConnection);
     } catch (e) {
-      console.error("FAILED TO CONNECT", e);
+      console.error("Connection error:", e);
     } finally {
       setIsConnecting(false);
     }
@@ -109,13 +144,14 @@ export default function MainPage() {
     if (connectedDevice) {
       bleManager.cancelDeviceConnection(connectedDevice.id);
       setConnectedDevice(null);
-      setDataReceived("Disconnected. Waiting for data...");
+      setShowDeviceList(true);
+      setChatHistory([]);
     }
   }
 
-  // Send data to peripheral
   async function sendDataToPeripheral() {
-    if (!connectedDevice || !inputValue) return;
+    if (!connectedDevice || !inputValue.trim()) return;
+
     try {
       const base64Value = Base64.encode(inputValue);
       await connectedDevice.writeCharacteristicWithResponseForService(
@@ -123,163 +159,221 @@ export default function MainPage() {
         CHARACTERISTIC_UUID,
         base64Value
       );
-      setLastSent(inputValue);
+
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          text: inputValue,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          type: "sent",
+        },
+      ]);
       setInputValue("");
+      Keyboard.dismiss();
     } catch (e) {
-      console.error("Failed to send data:", e);
+      console.error("Send error:", e);
     }
   }
 
-  return (
-    <View style={styles.containerScreen}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        <Text style={styles.textTitle}>BLE Device Scanner</Text>
-
-        {/* Connection Status */}
-        {connectedDevice ? (
-          <View style={styles.connectionStatus}>
-            <View style={[styles.statusIndicator, styles.connected]} />
-            <Text style={styles.statusText}>
-              Connected to: {connectedDevice.name || "Unnamed Device"}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.connectionStatus}>
-            <View style={[styles.statusIndicator, styles.disconnected]} />
-            <Text style={styles.statusText}>Not connected</Text>
-          </View>
-        )}
-
-        {/* Data Display */}
-        <View style={styles.dataContainer}>
-          <Text style={styles.dataLabel}>Received Data:</Text>
-          <View style={styles.dataValueContainer}>
-            <Text style={styles.dataValue}>{dataReceived}</Text>
-          </View>
-        </View>
-
-        {/* Send Data Input */}
-        {connectedDevice && (
-          <View style={{ marginBottom: 16 }}>
-            <TextInput
-              style={{
-                borderWidth: 1,
-                borderColor: "#ccc",
-                borderRadius: 8,
-                padding: 10,
-                marginBottom: 8,
-                color: "#fff",
-                backgroundColor: "#222",
-              }}
-              placeholder="Type message to send"
-              placeholderTextColor="#888"
-              value={inputValue}
-              onChangeText={setInputValue}
-            />
-            <Button
-              title="Send Data"
-              onPress={sendDataToPeripheral}
-              disabled={!inputValue}
-            />
-            {lastSent && (
-              <Text style={{ color: "#4A90E2", marginTop: 6 }}>
-                Last sent: {lastSent}
-              </Text>
-            )}
-          </View>
-        )}
-
-        {/* Control Buttons */}
-        <View style={styles.buttonGroup}>
-          {!isScanning ? (
-            <TouchableOpacity
-              style={[styles.button, styles.primaryButton]}
-              onPress={scanForPeripherals}
-            >
-              <Text style={styles.buttonText}>Scan Devices</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.button, styles.secondaryButton]}
-              onPress={stopScanning}
-            >
-              <Text style={styles.buttonText}>Stop Scan</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={[styles.button, styles.outlineButton]}
-            onPress={() => {
-              showDevicesWithoutName = !showDevicesWithoutName;
-              setAllDevices([...allDevices]);
-            }}
-          >
-            <Text style={styles.outlineButtonText}>
-              {showDevicesWithoutName ? "Hide Nameless" : "Show Nameless"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Device List */}
+  const renderDeviceList = () => (
+    <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+      <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Available Devices</Text>
-        {isScanning && allDevices.length === 0 && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#4A90E2" />
-            <Text style={styles.loadingText}>Scanning for devices...</Text>
-          </View>
-        )}
-
-        {allDevices.length === 0 && !isScanning ? (
-          <Text style={styles.emptyText}>
-            No devices found. Press "Scan Devices" to start.
+        <TouchableOpacity
+          onPress={() => setShowDevicesWithoutName(!showDevicesWithoutName)}
+          style={styles.toggleButton}
+        >
+          <Text style={styles.toggleButtonText}>
+            {showDevicesWithoutName ? "Hide Nameless" : "Show Nameless"}
           </Text>
+        </TouchableOpacity>
+      </View>
+
+      {isScanning && allDevices.length === 0 && (
+        <View style={styles.loadingContainer}>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <MaterialIcons
+              name="bluetooth-searching"
+              size={48}
+              color="#5E7BC7"
+            />
+          </Animated.View>
+          <Text style={styles.loadingText}>Scanning for devices...</Text>
+        </View>
+      )}
+
+      {allDevices.length === 0 && !isScanning ? (
+        <View style={styles.emptyState}>
+          <Feather
+            name="bluetooth"
+            size={48}
+            color="#5E7BC7"
+            style={styles.emptyIcon}
+          />
+          <Text style={styles.emptyText}>No devices found</Text>
+          <Text style={styles.emptySubtext}>
+            Press the scan button to search for nearby devices
+          </Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.deviceList}
+          contentContainerStyle={styles.deviceListContent}
+        >
+          {allDevices.map((device) => (
+            <TouchableOpacity
+              key={device.id}
+              style={styles.deviceCard}
+              onPress={() => connectToDevice(device)}
+              disabled={isConnecting}
+            >
+              <View style={styles.deviceIcon}>
+                <Ionicons name="bluetooth-outline" size={24} color="#5E7BC7" />
+              </View>
+              <View style={styles.deviceInfo}>
+                <Text style={styles.deviceName} numberOfLines={1}>
+                  {device.name || "Unnamed Device"}
+                </Text>
+                <Text style={styles.deviceId} numberOfLines={1}>
+                  {device.id}
+                </Text>
+              </View>
+              {isConnecting ? (
+                <ActivityIndicator size="small" color="#5E7BC7" />
+              ) : (
+                <MaterialIcons name="chevron-right" size={24} color="#888" />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      <View style={styles.scanButtons}>
+        {!isScanning ? (
+          <TouchableOpacity
+            style={styles.scanButton}
+            onPress={scanForPeripherals}
+          >
+            <MaterialIcons name="bluetooth" size={24} color="white" />
+            <Text style={styles.scanButtonText}>Scan Devices</Text>
+          </TouchableOpacity>
         ) : (
-          <View style={styles.deviceList}>
-            {allDevices.map((device) => {
-              if (showDevicesWithoutName || device.name) {
-                return (
-                  <View key={device.id} style={styles.deviceCard}>
-                    <View style={styles.deviceInfo}>
-                      <Text style={styles.deviceName}>
-                        {device.name || "Unnamed Device"}
-                      </Text>
-                      <Text style={styles.deviceId}>{device.id}</Text>
-                    </View>
-                    {connectedDevice?.id === device.id ? (
-                      <TouchableOpacity
-                        style={[styles.deviceButton, styles.disconnectButton]}
-                        onPress={disconnectDevice}
-                        disabled={isConnecting}
-                      >
-                        {isConnecting ? (
-                          <ActivityIndicator color="#fff" />
-                        ) : (
-                          <Text style={styles.deviceButtonText}>
-                            Disconnect
-                          </Text>
-                        )}
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.deviceButton, styles.connectButton]}
-                        onPress={() => connectToDevice(device)}
-                        disabled={isConnecting}
-                      >
-                        {isConnecting ? (
-                          <ActivityIndicator color="#fff" />
-                        ) : (
-                          <Text style={styles.deviceButtonText}>Connect</Text>
-                        )}
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              }
-              return null;
-            })}
+          <TouchableOpacity
+            style={[styles.scanButton, styles.stopScanButton]}
+            onPress={stopScanning}
+          >
+            <MaterialIcons name="stop" size={24} color="white" />
+            <Text style={styles.scanButtonText}>Stop Scan</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </Animated.View>
+  );
+
+  const renderChat = () => (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+    >
+      <View style={styles.chatHeader}>
+        <TouchableOpacity onPress={disconnectDevice} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#5E7BC7" />
+        </TouchableOpacity>
+        <View style={styles.deviceInfoHeader}>
+          <Text style={styles.deviceNameHeader} numberOfLines={1}>
+            {connectedDevice?.name || "Unnamed Device"}
+          </Text>
+          <View style={styles.connectionStatus}>
+            <View style={styles.connectedIndicator} />
+            <Text style={styles.connectionStatusText}>Connected</Text>
           </View>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.chatContainer}
+        contentContainerStyle={styles.chatContent}
+        ref={(ref) => {
+          if (ref && chatHistory.length > 0) {
+            setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
+          }
+        }}
+      >
+        {chatHistory.length === 0 ? (
+          <View style={styles.emptyChat}>
+            <Feather
+              name="message-square"
+              size={48}
+              color="#5E7BC7"
+              style={styles.emptyChatIcon}
+            />
+            <Text style={styles.emptyChatText}>No messages yet</Text>
+            <Text style={styles.emptyChatSubtext}>
+              Start chatting with your device
+            </Text>
+          </View>
+        ) : (
+          chatHistory.map((msg, idx) => (
+            <View
+              key={idx}
+              style={[
+                styles.messageContainer,
+                msg.type === "sent"
+                  ? styles.sentMessage
+                  : styles.receivedMessage,
+              ]}
+            >
+              <View
+                style={[
+                  styles.messageBubble,
+                  msg.type === "sent"
+                    ? styles.sentBubble
+                    : styles.receivedBubble,
+                ]}
+              >
+                <Text style={styles.messageText}>{msg.text}</Text>
+                <Text style={styles.messageTime}>{msg.timestamp}</Text>
+              </View>
+            </View>
+          ))
         )}
       </ScrollView>
+
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Type a message..."
+          placeholderTextColor="#888"
+          value={inputValue}
+          onChangeText={setInputValue}
+          editable={!!connectedDevice}
+          multiline
+        />
+        <TouchableOpacity
+          style={[
+            styles.sendButton,
+            !inputValue.trim() && styles.sendButtonDisabled,
+          ]}
+          onPress={sendDataToPeripheral}
+          disabled={!inputValue.trim()}
+        >
+          <MaterialIcons
+            name="send"
+            size={24}
+            color={inputValue.trim() ? "white" : "#aaa"}
+          />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+
+  return (
+    <View style={styles.container}>
+      {showDeviceList ? renderDeviceList() : renderChat()}
     </View>
   );
 }

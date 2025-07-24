@@ -12,47 +12,40 @@ export default function Index() {
 
   return (
     <View style={styles.containerScreen}>
-      {/* Premium Mode Selector */}
-      <View style={localStyles.modeSwitchContainer}>
+      {/* Mode Switcher as Tab Bar */}
+      <View style={localStyles.tabBar}>
         <TouchableOpacity
-          style={[
-            localStyles.modeButton,
-            mode === "central" && localStyles.activeCentralMode,
-          ]}
+          style={[localStyles.tab, mode === "central" && localStyles.activeTab]}
           onPress={() => setMode("central")}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
           <Text
             style={[
-              localStyles.modeButtonText,
-              mode === "central" && localStyles.activeModeText,
+              localStyles.tabText,
+              mode === "central" && localStyles.activeTabText,
             ]}
           >
-            CENTRAL MODE
+            CENTRAL
           </Text>
         </TouchableOpacity>
-
-        <View style={localStyles.divider} />
-
         <TouchableOpacity
           style={[
-            localStyles.modeButton,
-            mode === "peripheral" && localStyles.activePeripheralMode,
+            localStyles.tab,
+            mode === "peripheral" && localStyles.activeTab,
           ]}
           onPress={() => setMode("peripheral")}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
           <Text
             style={[
-              localStyles.modeButtonText,
-              mode === "peripheral" && localStyles.activeModeText,
+              localStyles.tabText,
+              mode === "peripheral" && localStyles.activeTabText,
             ]}
           >
-            PERIPHERAL MODE
+            PERIPHERAL
           </Text>
         </TouchableOpacity>
       </View>
-
       {/* Main Content */}
       <View style={styles.scrollContainer}>
         {mode === "central" ? <MainPage /> : <PeripheralPage />}
@@ -64,67 +57,52 @@ export default function Index() {
 const styles = StyleSheet.create({
   containerScreen: {
     flex: 1,
-    backgroundColor: "#0A0A0A",
-    paddingHorizontal: 16,
+    backgroundColor: "#181A20",
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    justifyContent: "flex-start",
   },
   scrollContainer: {
     flex: 1,
-    paddingBottom: 24,
+    paddingBottom: 0,
   },
 });
 
 const localStyles = StyleSheet.create({
-  modeSwitchContainer: {
+  tabBar: {
     flexDirection: "row",
-    backgroundColor: "#1A1A1A",
-    borderRadius: 14,
-    padding: 4,
-    margin: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#2A2A2A",
+    backgroundColor: "#23242A",
+    borderRadius: 16,
+    margin: 18,
+    marginBottom: 12,
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  modeButton: {
+  tab: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "transparent",
   },
-  activeCentralMode: {
-    backgroundColor: "#1E3A8A",
-    shadowColor: "#4A90E2",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
+  activeTab: {
+    backgroundColor: "#4A90E2",
   },
-  activePeripheralMode: {
-    backgroundColor: "#7F1D1D",
-    shadowColor: "#E74C3C",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-  },
-  modeButtonText: {
-    color: "#7F8C8D",
-    fontSize: 14,
+  tabText: {
+    color: "#AAA",
+    fontSize: 16,
     fontWeight: "700",
-    letterSpacing: 0.8,
+    letterSpacing: 1,
   },
-  activeModeText: {
-    color: "#FFFFFF",
-    textShadowColor: "rgba(255, 255, 255, 0.3)",
+  activeTabText: {
+    color: "#fff",
+    fontWeight: "bold",
+    textShadowColor: "rgba(74, 144, 226, 0.2)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 6,
-  },
-  divider: {
-    width: 1,
-    backgroundColor: "#2A2A2A",
-    marginVertical: 8,
   },
 });

@@ -39,6 +39,7 @@ export default function MainPage() {
   const [showDevicesWithoutName, setShowDevicesWithoutName] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [pulseAnim] = useState(new Animated.Value(1));
+  const [peripheralAddress, setPeripheralAddress] = useState<string>("");
 
   // Animation effects
   useEffect(() => {
@@ -94,34 +95,61 @@ export default function MainPage() {
     setIsScanning(false);
   }
 
-  async function startStreamingData(device: Device) {
-    if (device) {
-      device.monitorCharacteristicForService(
-        DATA_SERVICE_UUID,
-        CHARACTERISTIC_UUID,
-        onDataUpdate
-      );
-    }
-  }
-
   const onDataUpdate = (
     error: BleError | null,
     characteristic: Characteristic | null
   ) => {
-    if (error || !characteristic?.value) return;
+    if (error) {
+      console.log("onDataUpdate error:", error.message);
+      if (error.message.includes("disconnected")) {
+        console.log("Device disconnected, stopping monitoring");
+        // Handle disconnection gracefully
+        return;
+      }
+      return;
+    }
 
-    const dataInput = Base64.decode(characteristic.value);
-    setChatHistory((prev) => [
-      ...prev,
-      {
-        text: dataInput,
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        type: "received",
-      },
-    ]);
+    if (!characteristic?.value) {
+      console.log("onDataUpdate: no characteristic value");
+      return;
+    }
+
+    try {
+      // First try to decode as UTF-8 string
+      const decodedString = Base64.decode(characteristic.value);
+      const receivedText = decodedString;
+
+      console.log(
+        "Received data:",
+        receivedText,
+        "Length:",
+        receivedText.length
+      );
+
+      // Check for Ethereum address pattern
+      if (
+        receivedText.startsWith("0x") &&
+        receivedText.length === 42 &&
+        /^[0-9a-fA-F]+$/.test(receivedText.slice(2))
+      ) {
+        setPeripheralAddress(receivedText);
+        console.log("✅ Received peripheral address:", receivedText);
+        return;
+      }
+
+      // Regular message handling
+      console.log("Adding message to chat:", receivedText);
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          text: receivedText,
+          timestamp: new Date().toLocaleTimeString(),
+          type: "received",
+        },
+      ]);
+    } catch (e) {
+      console.error("Error processing received data:", e);
+    }
   };
 
   async function connectToDevice(device: Device) {
@@ -129,10 +157,20 @@ export default function MainPage() {
     try {
       const deviceConnection = await bleManager.connectToDevice(device.id);
       setConnectedDevice(deviceConnection);
+
+      // Important: Discover services and characteristics
       await deviceConnection.discoverAllServicesAndCharacteristics();
+
+      // Enable notifications
+      await deviceConnection.monitorCharacteristicForService(
+        DATA_SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        onDataUpdate,
+        "monitorTransaction"
+      );
+
       stopScanning();
       setShowDeviceList(false);
-      startStreamingData(deviceConnection);
     } catch (e) {
       console.error("Connection error:", e);
     } finally {
@@ -146,6 +184,7 @@ export default function MainPage() {
       setConnectedDevice(null);
       setShowDeviceList(true);
       setChatHistory([]);
+      setPeripheralAddress("");
     }
   }
 
@@ -164,10 +203,7 @@ export default function MainPage() {
         ...prev,
         {
           text: inputValue,
-          timestamp: new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
+          timestamp: new Date().toLocaleTimeString(),
           type: "sent",
         },
       ]);
@@ -287,6 +323,11 @@ export default function MainPage() {
           <Text style={styles.deviceNameHeader} numberOfLines={1}>
             {connectedDevice?.name || "Unnamed Device"}
           </Text>
+          {peripheralAddress && (
+            <Text style={styles.peripheralAddress} numberOfLines={1}>
+              ID: {peripheralAddress}
+            </Text>
+          )}
           <View style={styles.connectionStatus}>
             <View style={styles.connectedIndicator} />
             <Text style={styles.connectionStatusText}>Connected</Text>

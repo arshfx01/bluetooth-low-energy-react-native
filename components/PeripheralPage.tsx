@@ -27,6 +27,16 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// Generate random Ethereum-style address
+const generateEthereumAddress = (): string => {
+  const chars = "0123456789abcdef";
+  let address = "0x";
+  for (let i = 0; i < 40; i++) {
+    address += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return address;
+};
+
 export default function PeripheralPage() {
   const [error, setError] = useState<string | null>(null);
   const [isAdvertising, setIsAdvertising] = useState(false);
@@ -34,13 +44,30 @@ export default function PeripheralPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [logsVisible, setLogsVisible] = useState(false);
   const [chatHistory, setChatHistory] = useState<
-    { text: string; timestamp: string }[]
+    { text: string; timestamp: string; type: "received" | "sent" }[]
   >([]);
   const [pulseAnim] = useState(new Animated.Value(1));
+  const [peripheralAddress, setPeripheralAddress] = useState<string>("");
+  const [addressSent, setAddressSent] = useState(false);
 
   // Service/Characteristic UUIDs (must match central)
   const SERVICE_UUID = "00009800-0000-1000-8000-00805f9b34fb";
   const CHARACTERISTIC_UUID = "00009801-0000-1000-8000-00805f9b34fb";
+
+  // Generate address on component mount
+  useEffect(() => {
+    setPeripheralAddress(generateEthereumAddress());
+
+    // Check if BlePeripheral module is available
+    if (!BlePeripheral) {
+      const errorMsg =
+        "BlePeripheral module not available - check if device supports BLE advertising";
+      setError(errorMsg);
+      addLog(errorMsg);
+    } else {
+      addLog("BlePeripheral module loaded successfully");
+    }
+  }, []);
 
   // Animation effects
   useEffect(() => {
@@ -83,15 +110,24 @@ export default function PeripheralPage() {
   const setupPeripheral = async () => {
     try {
       addLog("Setting up BLE service...");
+
+      // Check if BlePeripheral is available
+      if (!BlePeripheral) {
+        throw new Error("BlePeripheral module not available");
+      }
+
       await BlePeripheral.addService(SERVICE_UUID, true);
+
+      // Add chat characteristic (read/write/notify)
       await BlePeripheral.addCharacteristicToService(
         SERVICE_UUID,
         CHARACTERISTIC_UUID,
-        32, // Permission: Write Encrypted
+        1 | 16, // Permission: Read + Write
         2 | 8 | 16 // Properties: Read | Write | Notify
       );
+
       await BlePeripheral.setName("BLE Chat Peripheral");
-      addLog("BLE service setup complete");
+      addLog(`BLE service setup complete. Address: ${peripheralAddress}`);
     } catch (err: any) {
       const errorMsg = `Setup failed: ${
         err && err.message ? err.message : err
@@ -124,16 +160,54 @@ export default function PeripheralPage() {
     setIsLoading(true);
     try {
       addLog("Starting advertising...");
+
+      // Check if BlePeripheral is available
+      if (!BlePeripheral) {
+        throw new Error("BlePeripheral module not available");
+      }
+
+      // Check if the module has the required methods
+      if (typeof BlePeripheral.addService !== "function") {
+        throw new Error("BlePeripheral module not properly initialized");
+      }
+
       await setupPeripheral();
-      await BlePeripheral.start();
-      setIsAdvertising(true);
-      addLog("Now advertising as BLE peripheral");
+
+      // Add a small delay to ensure setup is complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      addLog("Starting BLE advertising...");
+      try {
+        await BlePeripheral.start();
+        setIsAdvertising(true);
+        setAddressSent(false); // Reset flag for new connections
+        addLog("Now advertising as BLE peripheral");
+      } catch (startError: any) {
+        const startErrorMsg = `BLE advertising failed: ${
+          startError && startError.message ? startError.message : startError
+        }`;
+        addLog(startErrorMsg);
+
+        // Check if it's a Bluetooth LE advertiser issue
+        if (
+          startErrorMsg.includes("null") ||
+          startErrorMsg.includes("NullPointerException")
+        ) {
+          throw new Error(
+            "Bluetooth LE advertiser not available. This device may not support BLE advertising or Bluetooth may not be enabled."
+          );
+        }
+        throw startError;
+      }
     } catch (err: any) {
       const errorMsg = `Failed to advertise: ${
         err && err.message ? err.message : err
       }`;
       addLog(errorMsg);
       setError(errorMsg);
+
+      // Reset state on error
+      setIsAdvertising(false);
     } finally {
       setIsLoading(false);
     }
@@ -160,6 +234,7 @@ export default function PeripheralPage() {
 
   // Listen for characteristic write requests from central
   useEffect(() => {
+    // Listen for central write events
     const eventEmitter = new NativeEventEmitter(NativeModules.BLEPeripheral);
     const subscription = eventEmitter.addListener("onCentralWrite", (event) => {
       if (event && event.data) {
@@ -178,10 +253,40 @@ export default function PeripheralPage() {
               hour: "2-digit",
               minute: "2-digit",
             }),
+            type: "received",
           },
           ...prev.slice(0, 49), // keep last 50 messages
         ]);
         addLog(`Received message: ${str}`);
+
+        // Send peripheral address as notification when we receive first message
+        // This ensures the central is connected and listening
+        if (!addressSent) {
+          setTimeout(async () => {
+            try {
+              if (peripheralAddress && isAdvertising) {
+                const addressBytes = Array.from(peripheralAddress, (char) =>
+                  char.charCodeAt(0)
+                );
+                await BlePeripheral.sendNotificationToDevices(
+                  SERVICE_UUID,
+                  CHARACTERISTIC_UUID,
+                  addressBytes
+                );
+                addLog(`Sent address notification: ${peripheralAddress}`);
+                setAddressSent(true);
+              }
+            } catch (notificationError: any) {
+              const errorMsg = `Failed to send address notification: ${
+                notificationError && notificationError.message
+                  ? notificationError.message
+                  : notificationError
+              }`;
+              addLog(errorMsg);
+              // Don't throw - just log the error to avoid crashing
+            }
+          }, 500); // Short delay to ensure connection is stable
+        }
       }
     });
 
@@ -192,10 +297,10 @@ export default function PeripheralPage() {
       }
       subscription.remove();
     };
-  }, [isAdvertising]);
+  }, [isAdvertising, peripheralAddress]);
 
   return (
-    <View style={styles.container}>
+    <ScrollView>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerContent}>
@@ -234,6 +339,15 @@ export default function PeripheralPage() {
             </Text>
           </View>
         </View>
+
+        {/* Peripheral Address Display */}
+        {peripheralAddress && (
+          <View style={styles.addressContainer}>
+            <Text style={styles.addressLabel}>Peripheral ID:</Text>
+            <Text style={styles.addressText}>{peripheralAddress}</Text>
+          </View>
+        )}
+
         <View style={styles.statusIndicator}>
           <View
             style={[
@@ -362,7 +476,7 @@ export default function PeripheralPage() {
           </ScrollView>
         </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -615,5 +729,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     padding: 16,
+  },
+
+  // New styles for address display
+  addressContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#2C3A58",
+  },
+  addressLabel: {
+    fontSize: 14,
+    color: "#94A3B8",
+    marginBottom: 4,
+  },
+  addressText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#E2E8F0",
   },
 });

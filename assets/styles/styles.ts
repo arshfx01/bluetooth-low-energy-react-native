@@ -145,6 +145,12 @@ export default StyleSheet.create({
     color: "#E2E8F0",
     marginBottom: 4,
   },
+  peripheralAddress: {
+    fontSize: 12,
+    color: "#5E7BC7",
+    fontFamily: "monospace",
+    marginBottom: 4,
+  },
   connectionStatus: {
     flexDirection: "row",
     alignItems: "center",

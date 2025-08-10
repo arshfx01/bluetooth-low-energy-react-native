@@ -5,7 +5,7 @@ export default function RootLayout() {
     <Stack>
       <Stack.Screen
         options={{
-          title: "BLE Messenger",
+          title: "BLE Payment App",
           headerStyle: {
             backgroundColor: "#181A20",
             borderBottomWidth: 0,

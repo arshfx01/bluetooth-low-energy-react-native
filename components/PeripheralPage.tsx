@@ -13,6 +13,7 @@ import {
   Animated,
   Easing,
   UIManager,
+  Alert,
 } from "react-native";
 import { Buffer } from "buffer";
 import BlePeripheral from "react-native-ble-peripheral";
@@ -43,12 +44,22 @@ export default function PeripheralPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [logsVisible, setLogsVisible] = useState(false);
-  const [chatHistory, setChatHistory] = useState<
-    { text: string; timestamp: string; type: "received" | "sent" }[]
+  const [transactionHistory, setTransactionHistory] = useState<
+    {
+      type: "sent" | "received" | "request" | "address" | "acknowledgment";
+      amount?: string;
+      address?: string;
+      timestamp: string;
+      status: "pending" | "completed" | "failed";
+    }[]
   >([]);
   const [pulseAnim] = useState(new Animated.Value(1));
   const [peripheralAddress, setPeripheralAddress] = useState<string>("");
   const [addressSent, setAddressSent] = useState(false);
+  const [receiverBalance, setReceiverBalance] = useState(500); // Starting balance $500
+  const [paymentStatus, setPaymentStatus] = useState<
+    "idle" | "waiting" | "received" | "failed"
+  >("idle");
 
   // Service/Characteristic UUIDs (must match central)
   const SERVICE_UUID = "00009800-0000-1000-8000-00805f9b34fb";
@@ -95,7 +106,7 @@ export default function PeripheralPage() {
   }, [isAdvertising]);
 
   const addLog = (message: string) => {
-    console.log(`[BLE Peripheral] ${message}`);
+    console.log(`[BLE Receiver] ${message}`);
     const time = new Date().toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -103,6 +114,24 @@ export default function PeripheralPage() {
     setLogs((prev) => [
       `${time}: ${message}`,
       ...prev.slice(0, 19), // Keep last 20 logs
+    ]);
+  };
+
+  const addTransaction = (
+    type: "sent" | "received" | "request" | "address" | "acknowledgment",
+    amount?: string,
+    address?: string,
+    status: "pending" | "completed" | "failed" = "completed"
+  ) => {
+    setTransactionHistory((prev) => [
+      {
+        type,
+        amount,
+        address,
+        timestamp: new Date().toLocaleTimeString(),
+        status,
+      },
+      ...prev.slice(0, 49), // Keep last 50 transactions
     ]);
   };
 
@@ -126,7 +155,7 @@ export default function PeripheralPage() {
         2 | 8 | 16 // Properties: Read | Write | Notify
       );
 
-      await BlePeripheral.setName("BLE Chat Peripheral");
+      await BlePeripheral.setName("BLE Payment Receiver");
       addLog(`BLE service setup complete. Address: ${peripheralAddress}`);
     } catch (err: any) {
       const errorMsg = `Setup failed: ${
@@ -181,7 +210,7 @@ export default function PeripheralPage() {
         await BlePeripheral.start();
         setIsAdvertising(true);
         setAddressSent(false); // Reset flag for new connections
-        addLog("Now advertising as BLE peripheral");
+        addLog("Now advertising as BLE payment receiver");
       } catch (startError: any) {
         const startErrorMsg = `BLE advertising failed: ${
           startError && startError.message ? startError.message : startError
@@ -246,20 +275,26 @@ export default function PeripheralPage() {
         } catch (e) {
           str = bytes.join(",");
         }
-        setChatHistory((prev) => [
-          {
-            text: str,
-            timestamp: new Date().toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            type: "received",
-          },
-          ...prev.slice(0, 49), // keep last 50 messages
-        ]);
+
+        console.log("Received message:", str);
+
+        // Handle different types of messages
+        if (str.startsWith("PAYMENT_REQUEST:")) {
+          // Sender is requesting to send payment
+          const amount = str.split(":")[1];
+          handlePaymentRequest(amount);
+        } else if (str.startsWith("PAYMENT_SENT:")) {
+          // Payment was sent successfully
+          const amount = str.split(":")[1];
+          handlePaymentReceived(amount);
+        } else {
+          // Regular message
+          addTransaction("received", undefined, str, "completed");
+        }
+
         addLog(`Received message: ${str}`);
 
-        // Send peripheral address as notification when we receive first message
+        // Send receiver address as notification when we receive first message
         // This ensures the central is connected and listening
         if (!addressSent) {
           setTimeout(async () => {
@@ -299,15 +334,68 @@ export default function PeripheralPage() {
     };
   }, [isAdvertising, peripheralAddress]);
 
+  const handlePaymentRequest = (amount: string) => {
+    addTransaction("request", amount, undefined, "pending");
+    setPaymentStatus("waiting");
+    Alert.alert(
+      "Payment Request",
+      `Sender wants to send $${amount}. Accept payment?`,
+      [
+        { text: "Decline", style: "cancel" },
+        { text: "Accept", onPress: () => acceptPayment(amount) },
+      ]
+    );
+  };
+
+  const handlePaymentReceived = (amount: string) => {
+    const numAmount = parseFloat(amount);
+    setReceiverBalance((prev) => prev + numAmount);
+    addTransaction("received", amount, undefined, "completed");
+    setPaymentStatus("received");
+
+    // Send acknowledgment
+    setTimeout(async () => {
+      try {
+        const ackMessage = "ACKNOWLEDGMENT:received";
+        const ackBytes = Array.from(ackMessage, (char) => char.charCodeAt(0));
+        await BlePeripheral.sendNotificationToDevices(
+          SERVICE_UUID,
+          CHARACTERISTIC_UUID,
+          ackBytes
+        );
+        addLog("Sent payment acknowledgment");
+      } catch (error) {
+        addLog("Failed to send acknowledgment");
+      }
+    }, 1000);
+  };
+
+  const acceptPayment = async (amount: string) => {
+    try {
+      const message = `PAYMENT_ACCEPTED:${amount}`;
+      const messageBytes = Array.from(message, (char) => char.charCodeAt(0));
+      await BlePeripheral.sendNotificationToDevices(
+        SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        messageBytes
+      );
+      addTransaction("acknowledgment", amount, "Payment accepted", "completed");
+      setPaymentStatus("waiting");
+    } catch (error) {
+      addLog("Failed to send payment acceptance");
+      setPaymentStatus("failed");
+    }
+  };
+
   return (
     <ScrollView>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerContent}>
           <Ionicons name="bluetooth" size={28} color="#5E7BC7" />
-          <Text style={styles.headerTitle}>Peripheral Mode</Text>
+          <Text style={styles.headerTitle}>Payment Receiver</Text>
         </View>
-        <Text style={styles.headerSub}>BLE Chat Demo</Text>
+        <Text style={styles.headerSub}>BLE Payment Demo</Text>
       </View>
 
       {/* Status Card */}
@@ -330,20 +418,20 @@ export default function PeripheralPage() {
           </Animated.View>
           <View style={styles.statusTextContainer}>
             <Text style={styles.statusTitle}>
-              {isAdvertising ? "Advertising" : "Not Advertising"}
+              {isAdvertising ? "Ready to Receive" : "Not Advertising"}
             </Text>
             <Text style={styles.statusSubtitle}>
               {isAdvertising
-                ? "Waiting for connections..."
+                ? "Waiting for payments..."
                 : "Press start to begin"}
             </Text>
           </View>
         </View>
 
-        {/* Peripheral Address Display */}
+        {/* Receiver Address Display */}
         {peripheralAddress && (
           <View style={styles.addressContainer}>
-            <Text style={styles.addressLabel}>Peripheral ID:</Text>
+            <Text style={styles.addressLabel}>Receiver Address:</Text>
             <Text style={styles.addressText}>{peripheralAddress}</Text>
           </View>
         )}
@@ -355,8 +443,14 @@ export default function PeripheralPage() {
               isAdvertising ? styles.statusDotActive : styles.statusDotInactive,
             ]}
           />
-          <Text style={styles.statusDeviceName}>BLE Chat Peripheral</Text>
+          <Text style={styles.statusDeviceName}>BLE Payment Receiver</Text>
         </View>
+      </View>
+
+      {/* Balance Display */}
+      <View style={styles.balanceCard}>
+        <Text style={styles.balanceLabel}>Your Balance</Text>
+        <Text style={styles.balanceAmount}>${receiverBalance.toFixed(2)}</Text>
       </View>
 
       {/* Error Display */}
@@ -367,43 +461,57 @@ export default function PeripheralPage() {
         </View>
       )}
 
-      {/* Chat Area */}
-      <View style={styles.chatContainer}>
-        <View style={styles.chatHeader}>
-          <Text style={styles.chatTitle}>Messages from Central</Text>
-          <Text style={styles.chatCount}>{chatHistory.length} received</Text>
-        </View>
-
-        <ScrollView
-          style={styles.chatScroll}
-          contentContainerStyle={styles.chatContent}
-          ref={(ref) => {
-            if (ref && chatHistory.length > 0) {
-              setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
-            }
-          }}
-        >
-          {chatHistory.length === 0 ? (
-            <View style={styles.emptyChat}>
+      {/* Transaction History */}
+      <View style={styles.transactionContainer}>
+        <Text style={styles.transactionTitle}>Transaction History</Text>
+        <ScrollView style={styles.transactionList}>
+          {transactionHistory.length === 0 ? (
+            <View style={styles.emptyTransaction}>
               <Feather
-                name="message-square"
+                name="credit-card"
                 size={48}
                 color="#5E7BC7"
-                style={styles.emptyChatIcon}
+                style={styles.emptyTransactionIcon}
               />
-              <Text style={styles.emptyChatText}>No messages yet</Text>
-              <Text style={styles.emptyChatSubtext}>
-                {isAdvertising
-                  ? "Send messages from central device to see them here"
-                  : "Start advertising to receive messages"}
+              <Text style={styles.emptyTransactionText}>
+                No transactions yet
+              </Text>
+              <Text style={styles.emptyTransactionSubtext}>
+                Start receiving payments to see transaction history
               </Text>
             </View>
           ) : (
-            [...chatHistory].reverse().map((msg, idx) => (
-              <View key={idx} style={styles.messageContainer}>
-                <View style={styles.messageBubble}>
-                  <Text style={styles.messageText}>{msg.text}</Text>
-                  <Text style={styles.messageTime}>{msg.timestamp}</Text>
+            transactionHistory.map((txn, idx) => (
+              <View key={idx} style={styles.transactionItem}>
+                <View style={styles.transactionHeader}>
+                  <Text style={styles.transactionType}>
+                    {txn.type === "sent"
+                      ? "💰 Sent"
+                      : txn.type === "received"
+                      ? "💳 Received"
+                      : txn.type === "request"
+                      ? "📤 Request"
+                      : txn.type === "address"
+                      ? "📍 Address"
+                      : "✅ Acknowledgment"}
+                  </Text>
+                  <Text style={styles.transactionTime}>{txn.timestamp}</Text>
+                </View>
+                {txn.amount && (
+                  <Text style={styles.transactionAmount}>${txn.amount}</Text>
+                )}
+                {txn.address && (
+                  <Text style={styles.transactionAddress}>{txn.address}</Text>
+                )}
+                <View
+                  style={[
+                    styles.statusIndicator,
+                    txn.status === "completed" && styles.statusCompleted,
+                    txn.status === "pending" && styles.statusPending,
+                    txn.status === "failed" && styles.statusFailed,
+                  ]}
+                >
+                  <Text style={styles.statusText}>{txn.status}</Text>
                 </View>
               </View>
             ))
@@ -411,69 +519,64 @@ export default function PeripheralPage() {
         </ScrollView>
       </View>
 
-      {/* Control Button */}
-      <TouchableOpacity
-        style={[
-          styles.controlButton,
-          isAdvertising ? styles.stopButton : styles.startButton,
-          isLoading && styles.buttonDisabled,
-        ]}
-        onPress={isAdvertising ? stopAdvertising : startAdvertising}
-        disabled={isLoading}
-      >
-        {isLoading ? (
-          <ActivityIndicator color="white" />
-        ) : (
-          <>
-            <MaterialIcons
-              name={isAdvertising ? "stop" : "play-arrow"}
-              size={24}
-              color="white"
-            />
-            <Text style={styles.controlButtonText}>
-              {isAdvertising ? "STOP ADVERTISING" : "START ADVERTISING"}
-            </Text>
-          </>
-        )}
-      </TouchableOpacity>
-
-      {/* Debug Logs */}
-      <TouchableOpacity
-        style={styles.logsToggle}
-        onPress={() => {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setLogsVisible(!logsVisible);
-        }}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.logsToggleText}>
-          {logsVisible ? (
-            <>
-              <Ionicons name="chevron-up" size={16} color="#5E7BC7" />
-              Hide Activity Log
-            </>
-          ) : (
-            <>
-              <Ionicons name="chevron-down" size={16} color="#5E7BC7" />
-              Show Activity Log
-            </>
-          )}
-        </Text>
-      </TouchableOpacity>
-
-      {logsVisible && (
-        <View style={styles.logsContainer}>
-          <ScrollView style={styles.logsScrollView}>
-            {logs.length === 0 ? (
-              <Text style={styles.emptyLogText}>No activity yet</Text>
+      {/* Control Buttons */}
+      <View style={styles.controlButtons}>
+        {!isAdvertising ? (
+          <TouchableOpacity
+            style={[styles.controlButton, styles.startButton]}
+            onPress={startAdvertising}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="white" />
             ) : (
-              logs.map((log, index) => (
-                <View key={index} style={styles.logEntry}>
-                  <Text style={styles.logText}>{log}</Text>
-                </View>
-              ))
+              <MaterialIcons name="play-arrow" size={24} color="white" />
             )}
-          </ScrollView>
+            <Text style={styles.controlButtonText}>
+              {isLoading ? "Starting..." : "Start Receiving"}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.controlButton, styles.stopButton]}
+            onPress={stopAdvertising}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <MaterialIcons name="stop" size={24} color="white" />
+            )}
+            <Text style={styles.controlButtonText}>
+              {isLoading ? "Stopping..." : "Stop Receiving"}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Logs Section */}
+      {logs.length > 0 && (
+        <View style={styles.logsContainer}>
+          <TouchableOpacity
+            style={styles.logsHeader}
+            onPress={() => setLogsVisible(!logsVisible)}
+          >
+            <Text style={styles.logsTitle}>Debug Logs</Text>
+            <MaterialIcons
+              name={logsVisible ? "expand-less" : "expand-more"}
+              size={24}
+              color="#94A3B8"
+            />
+          </TouchableOpacity>
+          {logsVisible && (
+            <ScrollView style={styles.logsContent}>
+              {logs.map((log, index) => (
+                <Text key={index} style={styles.logText}>
+                  {log}
+                </Text>
+              ))}
+            </ScrollView>
+          )}
         </View>
       )}
     </ScrollView>
@@ -483,18 +586,23 @@ export default function PeripheralPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0A0E17",
+    backgroundColor: "#F8F9FA",
     padding: 16,
   },
 
   // Header Styles
   header: {
     padding: 16,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     marginBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#1E293B",
+    borderBottomColor: "#E9ECEF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   headerContent: {
     flexDirection: "row",
@@ -504,25 +612,30 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: "600",
-    color: "#E2E8F0",
+    color: "#212529",
     marginLeft: 12,
   },
   headerSub: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: "#868E96",
   },
 
   // Status Card
   statusCard: {
-    backgroundColor: "#1E293B",
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#2C3A58",
+    borderColor: "#E9ECEF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   statusCardActive: {
-    borderColor: "#3B82F6",
+    borderColor: "#4263EB",
   },
   statusContent: {
     flexDirection: "row",
@@ -533,13 +646,13 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#1E293B",
+    backgroundColor: "#F8F9FA",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
   },
   statusIconActive: {
-    backgroundColor: "rgba(94, 123, 199, 0.2)",
+    backgroundColor: "rgba(66, 99, 235, 0.1)",
   },
   statusTextContainer: {
     flex: 1,
@@ -547,19 +660,19 @@ const styles = StyleSheet.create({
   statusTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#E2E8F0",
+    color: "#212529",
     marginBottom: 2,
   },
   statusSubtitle: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: "#868E96",
   },
   statusIndicator: {
     flexDirection: "row",
     alignItems: "center",
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#2C3A58",
+    borderTopColor: "#E9ECEF",
   },
   statusDot: {
     width: 10,
@@ -568,123 +681,182 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   statusDotActive: {
-    backgroundColor: "#10B981",
+    backgroundColor: "#40C057",
   },
   statusDotInactive: {
-    backgroundColor: "#64748B",
+    backgroundColor: "#ADB5BD",
   },
   statusDeviceName: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: "#868E96",
+  },
+
+  // Balance Card
+  balanceCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  balanceLabel: {
+    fontSize: 16,
+    color: "#868E96",
+    marginBottom: 8,
+  },
+  balanceAmount: {
+    fontSize: 36,
+    fontWeight: "700",
+    color: "#40C057",
   },
 
   // Error Card
   errorCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#2D0000",
+    backgroundColor: "#FFF5F5",
     padding: 12,
     borderRadius: 12,
     marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: "#DC2626",
+    borderLeftColor: "#F03E3E",
   },
   errorText: {
-    color: "#F87171",
+    color: "#F03E3E",
     fontWeight: "500",
     marginLeft: 8,
     flex: 1,
   },
 
-  // Chat Container
-  chatContainer: {
-    flex: 1,
-    backgroundColor: "#0F172A",
+  // Transaction History
+  transactionContainer: {
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
+    padding: 16,
     marginBottom: 16,
-    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  chatHeader: {
+  transactionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#212529",
+    marginBottom: 12,
+  },
+  transactionList: {
+    maxHeight: 200,
+  },
+  transactionItem: {
+    backgroundColor: "#F8F9FA",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+  },
+  transactionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1E293B",
+    marginBottom: 4,
   },
-  chatTitle: {
+  transactionType: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4263EB",
+  },
+  transactionTime: {
+    fontSize: 12,
+    color: "#868E96",
+  },
+  transactionAmount: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#E2E8F0",
+    color: "#40C057",
+    marginTop: 4,
   },
-  chatCount: {
+  transactionAddress: {
     fontSize: 14,
-    color: "#5E7BC7",
-    fontWeight: "500",
+    color: "#868E96",
+    marginTop: 4,
   },
-  chatScroll: {
-    flex: 1,
+
+  statusCompleted: {
+    backgroundColor: "#D3F9D8",
   },
-  chatContent: {
-    padding: 16,
+  statusPending: {
+    backgroundColor: "#FFF3BF",
   },
-  emptyChat: {
+  statusFailed: {
+    backgroundColor: "#FFE3E3",
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#212529",
+  },
+  emptyTransaction: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 40,
   },
-  emptyChatIcon: {
+  emptyTransactionIcon: {
     marginBottom: 16,
     opacity: 0.7,
+    color: "#4263EB",
   },
-  emptyChatText: {
+  emptyTransactionText: {
     fontSize: 16,
-    color: "#E2E8F0",
+    color: "#212529",
     fontWeight: "600",
     marginBottom: 4,
   },
-  emptyChatSubtext: {
+  emptyTransactionSubtext: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: "#868E96",
     textAlign: "center",
   },
-  messageContainer: {
-    marginBottom: 12,
-  },
-  messageBubble: {
-    backgroundColor: "#1E293B",
-    borderRadius: 12,
-    padding: 12,
-    maxWidth: "80%",
-    alignSelf: "flex-start",
-  },
-  messageText: {
-    fontSize: 16,
-    color: "#E2E8F0",
-    marginBottom: 4,
-    lineHeight: 22,
-  },
-  messageTime: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.6)",
-    textAlign: "right",
-  },
 
-  // Control Button
+  // Control Buttons
+  controlButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginBottom: 16,
+  },
   controlButton: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
     borderRadius: 12,
-    marginBottom: 16,
+    flex: 1,
+    marginHorizontal: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   startButton: {
-    backgroundColor: "#1D4ED8",
+    backgroundColor: "#4263EB",
+    shadowColor: "#4263EB",
   },
   stopButton: {
-    backgroundColor: "#B91C1C",
+    backgroundColor: "#F03E3E",
+    shadowColor: "#F03E3E",
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -697,55 +869,65 @@ const styles = StyleSheet.create({
   },
 
   // Logs Section
-  logsToggle: {
-    alignItems: "center",
-    padding: 8,
-    marginBottom: 8,
-  },
-  logsToggleText: {
-    color: "#5E7BC7",
-    fontWeight: "500",
-    fontSize: 14,
-  },
   logsContainer: {
-    backgroundColor: "#1E293B",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    maxHeight: 200,
+    marginTop: 16,
     padding: 12,
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  logsScrollView: {
-    flex: 1,
+  logsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
   },
-  logEntry: {
-    paddingVertical: 4,
+  logsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#212529",
+  },
+  logsContent: {
+    maxHeight: 200,
+    marginTop: 8,
   },
   logText: {
-    color: "#94A3B8",
+    color: "#868E96",
     fontSize: 12,
     fontFamily: Platform.OS === "android" ? "monospace" : "Courier New",
+    paddingVertical: 4,
   },
   emptyLogText: {
-    color: "#64748B",
+    color: "#868E96",
     fontSize: 14,
     textAlign: "center",
     padding: 16,
   },
 
-  // New styles for address display
+  // Address Display
   addressContainer: {
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#2C3A58",
+    borderTopColor: "#E9ECEF",
   },
   addressLabel: {
     fontSize: 14,
-    color: "#94A3B8",
+    color: "#868E96",
     marginBottom: 4,
   },
   addressText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#E2E8F0",
+    color: "#4263EB",
+    fontFamily: "monospace",
   },
 });

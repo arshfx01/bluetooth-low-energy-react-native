@@ -11,6 +11,8 @@ import {
   Keyboard,
   Animated,
   Easing,
+  Alert,
+  Modal,
 } from "react-native";
 import {
   BleManager,
@@ -26,20 +28,38 @@ export const bleManager = new BleManager();
 const DATA_SERVICE_UUID = "00009800-0000-1000-8000-00805f9b34fb";
 const CHARACTERISTIC_UUID = "00009801-0000-1000-8000-00805f9b34fb";
 
+const CORRECT_PIN = "1234";
+
 export default function MainPage() {
   const [allDevices, setAllDevices] = useState<Device[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<Device | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
-  const [inputValue, setInputValue] = useState("");
-  const [chatHistory, setChatHistory] = useState<
-    { text: string; timestamp: string; type: "sent" | "received" }[]
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [transactionHistory, setTransactionHistory] = useState<
+    {
+      type: "sent" | "received" | "request" | "address" | "acknowledgment";
+      amount?: string;
+      address?: string;
+      timestamp: string;
+      status: "pending" | "completed" | "failed";
+    }[]
   >([]);
   const [showDeviceList, setShowDeviceList] = useState(true);
   const [showDevicesWithoutName, setShowDevicesWithoutName] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(0));
   const [pulseAnim] = useState(new Animated.Value(1));
-  const [peripheralAddress, setPeripheralAddress] = useState<string>("");
+  const [receiverAddress, setReceiverAddress] = useState<string>("");
+  const [senderBalance, setSenderBalance] = useState(1000); // Starting balance $1000
+  const [paymentStatus, setPaymentStatus] = useState<
+    "idle" | "requesting" | "sending" | "completed" | "failed"
+  >("idle");
+
+  // PIN verification states
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [pendingPaymentAmount, setPendingPaymentAmount] = useState("");
 
   // Animation effects
   useEffect(() => {
@@ -103,7 +123,6 @@ export default function MainPage() {
       console.log("onDataUpdate error:", error.message);
       if (error.message.includes("disconnected")) {
         console.log("Device disconnected, stopping monitoring");
-        // Handle disconnection gracefully
         return;
       }
       return;
@@ -115,7 +134,6 @@ export default function MainPage() {
     }
 
     try {
-      // First try to decode as UTF-8 string
       const decodedString = Base64.decode(characteristic.value);
       const receivedText = decodedString;
 
@@ -126,30 +144,82 @@ export default function MainPage() {
         receivedText.length
       );
 
-      // Check for Ethereum address pattern
-      if (
-        receivedText.startsWith("0x") &&
-        receivedText.length === 42 &&
-        /^[0-9a-fA-F]+$/.test(receivedText.slice(2))
-      ) {
-        setPeripheralAddress(receivedText);
-        console.log("✅ Received peripheral address:", receivedText);
-        return;
+      // Handle different types of messages
+      if (receivedText.startsWith("PAYMENT_REQUEST:")) {
+        // Receiver is requesting payment
+        const amount = receivedText.split(":")[1];
+        handlePaymentRequest(amount);
+      } else if (receivedText.startsWith("ADDRESS:")) {
+        // Receiver sent their address
+        const address = receivedText.split(":")[1];
+        setReceiverAddress(address);
+        addTransaction("address", undefined, address, "completed");
+        console.log("✅ Received receiver address:", address);
+      } else if (receivedText.startsWith("PAYMENT_SENT:")) {
+        // Payment was sent successfully
+        const amount = receivedText.split(":")[1];
+        handlePaymentSent(amount);
+      } else if (receivedText.startsWith("ACKNOWLEDGMENT:")) {
+        // Payment acknowledgment received
+        const status = receivedText.split(":")[1];
+        handlePaymentAcknowledgment(status);
+      } else {
+        // Regular message
+        addTransaction("received", undefined, receivedText, "completed");
       }
-
-      // Regular message handling
-      console.log("Adding message to chat:", receivedText);
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          text: receivedText,
-          timestamp: new Date().toLocaleTimeString(),
-          type: "received",
-        },
-      ]);
     } catch (e) {
       console.error("Error processing received data:", e);
     }
+  };
+
+  const handlePaymentRequest = (amount: string) => {
+    addTransaction("request", amount, undefined, "pending");
+    setPaymentStatus("requesting");
+    Alert.alert(
+      "Payment Request",
+      `Receiver is requesting $${amount}. Do you want to proceed?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Send Payment", onPress: () => sendPaymentRequest(amount) },
+      ]
+    );
+  };
+
+  const handlePaymentSent = (amount: string) => {
+    const numAmount = parseFloat(amount);
+    setSenderBalance((prev) => prev - numAmount);
+    addTransaction("sent", amount, undefined, "completed");
+    setPaymentStatus("completed");
+  };
+
+  const handlePaymentAcknowledgment = (status: string) => {
+    addTransaction(
+      "acknowledgment",
+      undefined,
+      `Payment ${status}`,
+      "completed"
+    );
+    if (status === "received") {
+      Alert.alert("Success", "Payment received by receiver!");
+    }
+  };
+
+  const addTransaction = (
+    type: "sent" | "received" | "request" | "address" | "acknowledgment",
+    amount?: string,
+    address?: string,
+    status: "pending" | "completed" | "failed" = "completed"
+  ) => {
+    setTransactionHistory((prev) => [
+      {
+        type,
+        amount,
+        address,
+        timestamp: new Date().toLocaleTimeString(),
+        status,
+      },
+      ...prev.slice(0, 49), // Keep last 50 transactions
+    ]);
   };
 
   async function connectToDevice(device: Device) {
@@ -183,41 +253,89 @@ export default function MainPage() {
       bleManager.cancelDeviceConnection(connectedDevice.id);
       setConnectedDevice(null);
       setShowDeviceList(true);
-      setChatHistory([]);
-      setPeripheralAddress("");
+      setTransactionHistory([]);
+      setReceiverAddress("");
+      setPaymentStatus("idle");
     }
   }
 
-  async function sendDataToPeripheral() {
-    if (!connectedDevice || !inputValue.trim()) return;
+  async function sendPaymentRequest(amount: string) {
+    if (!connectedDevice || !amount.trim()) return;
 
     try {
-      const base64Value = Base64.encode(inputValue);
+      const message = `PAYMENT_REQUEST:${amount}`;
+      const base64Value = Base64.encode(message);
       await connectedDevice.writeCharacteristicWithResponseForService(
         DATA_SERVICE_UUID,
         CHARACTERISTIC_UUID,
         base64Value
       );
 
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          text: inputValue,
-          timestamp: new Date().toLocaleTimeString(),
-          type: "sent",
-        },
-      ]);
-      setInputValue("");
-      Keyboard.dismiss();
+      addTransaction("sent", amount, undefined, "pending");
+      setPaymentStatus("sending");
     } catch (e) {
-      console.error("Send error:", e);
+      console.error("Send payment request error:", e);
+      setPaymentStatus("failed");
     }
   }
+
+  async function sendPayment(amount: string) {
+    if (!connectedDevice || !amount.trim()) return;
+
+    // Store the payment amount and show PIN modal
+    setPendingPaymentAmount(amount);
+    setShowPinModal(true);
+    setPinInput("");
+    setPinError("");
+  }
+
+  const verifyPin = () => {
+    if (pinInput === CORRECT_PIN) {
+      setShowPinModal(false);
+      setPinInput("");
+      setPinError("");
+      // Proceed with the actual payment
+      executePayment(pendingPaymentAmount);
+    } else {
+      setPinError("Incorrect PIN. Please try again.");
+      setPinInput("");
+    }
+  };
+
+  const executePayment = async (amount: string) => {
+    if (!connectedDevice || !amount.trim()) return;
+
+    try {
+      const message = `PAYMENT_SENT:${amount}`;
+      const base64Value = Base64.encode(message);
+      await connectedDevice.writeCharacteristicWithResponseForService(
+        DATA_SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        base64Value
+      );
+
+      const numAmount = parseFloat(amount);
+      setSenderBalance((prev) => prev - numAmount);
+      addTransaction("sent", amount, undefined, "completed");
+      setPaymentStatus("completed");
+      setPaymentAmount("");
+    } catch (e) {
+      console.error("Send payment error:", e);
+      setPaymentStatus("failed");
+    }
+  };
+
+  const cancelPinVerification = () => {
+    setShowPinModal(false);
+    setPinInput("");
+    setPinError("");
+    setPendingPaymentAmount("");
+  };
 
   const renderDeviceList = () => (
     <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Available Devices</Text>
+        <Text style={styles.sectionTitle}>Available Receivers</Text>
         <TouchableOpacity
           onPress={() => setShowDevicesWithoutName(!showDevicesWithoutName)}
           style={styles.toggleButton}
@@ -237,7 +355,7 @@ export default function MainPage() {
               color="#5E7BC7"
             />
           </Animated.View>
-          <Text style={styles.loadingText}>Scanning for devices...</Text>
+          <Text style={styles.loadingText}>Scanning for receivers...</Text>
         </View>
       )}
 
@@ -249,9 +367,9 @@ export default function MainPage() {
             color="#5E7BC7"
             style={styles.emptyIcon}
           />
-          <Text style={styles.emptyText}>No devices found</Text>
+          <Text style={styles.emptyText}>No receivers found</Text>
           <Text style={styles.emptySubtext}>
-            Press the scan button to search for nearby devices
+            Press the scan button to search for nearby payment receivers
           </Text>
         </View>
       ) : (
@@ -271,7 +389,7 @@ export default function MainPage() {
               </View>
               <View style={styles.deviceInfo}>
                 <Text style={styles.deviceName} numberOfLines={1}>
-                  {device.name || "Unnamed Device"}
+                  {device.name || "Unnamed Receiver"}
                 </Text>
                 <Text style={styles.deviceId} numberOfLines={1}>
                   {device.id}
@@ -294,7 +412,7 @@ export default function MainPage() {
             onPress={scanForPeripherals}
           >
             <MaterialIcons name="bluetooth" size={24} color="white" />
-            <Text style={styles.scanButtonText}>Scan Devices</Text>
+            <Text style={styles.scanButtonText}>Scan Receivers</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -309,7 +427,7 @@ export default function MainPage() {
     </Animated.View>
   );
 
-  const renderChat = () => (
+  const renderPayment = () => (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -321,11 +439,11 @@ export default function MainPage() {
         </TouchableOpacity>
         <View style={styles.deviceInfoHeader}>
           <Text style={styles.deviceNameHeader} numberOfLines={1}>
-            {connectedDevice?.name || "Unnamed Device"}
+            {connectedDevice?.name || "Payment Receiver"}
           </Text>
-          {peripheralAddress && (
+          {receiverAddress && (
             <Text style={styles.peripheralAddress} numberOfLines={1}>
-              ID: {peripheralAddress}
+              Address: {receiverAddress}
             </Text>
           )}
           <View style={styles.connectionStatus}>
@@ -335,86 +453,144 @@ export default function MainPage() {
         </View>
       </View>
 
-      <ScrollView
-        style={styles.chatContainer}
-        contentContainerStyle={styles.chatContent}
-        ref={(ref) => {
-          if (ref && chatHistory.length > 0) {
-            setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
-          }
-        }}
-      >
-        {chatHistory.length === 0 ? (
-          <View style={styles.emptyChat}>
-            <Feather
-              name="message-square"
-              size={48}
-              color="#5E7BC7"
-              style={styles.emptyChatIcon}
-            />
-            <Text style={styles.emptyChatText}>No messages yet</Text>
-            <Text style={styles.emptyChatSubtext}>
-              Start chatting with your device
-            </Text>
-          </View>
-        ) : (
-          chatHistory.map((msg, idx) => (
-            <View
-              key={idx}
-              style={[
-                styles.messageContainer,
-                msg.type === "sent"
-                  ? styles.sentMessage
-                  : styles.receivedMessage,
-              ]}
-            >
-              <View
-                style={[
-                  styles.messageBubble,
-                  msg.type === "sent"
-                    ? styles.sentBubble
-                    : styles.receivedBubble,
-                ]}
-              >
-                <Text style={styles.messageText}>{msg.text}</Text>
-                <Text style={styles.messageTime}>{msg.timestamp}</Text>
-              </View>
-            </View>
-          ))
-        )}
-      </ScrollView>
+      {/* Balance Display */}
+      <View style={styles.balanceCard}>
+        <Text style={styles.balanceLabel}>Your Balance</Text>
+        <Text style={styles.balanceAmount}>${senderBalance.toFixed(2)}</Text>
+      </View>
 
-      <View style={styles.inputContainer}>
+      {/* Payment Input */}
+      <View style={styles.paymentInputContainer}>
+        <Text style={styles.paymentLabel}>Payment Amount ($)</Text>
         <TextInput
-          style={styles.textInput}
-          placeholder="Type a message..."
+          style={styles.paymentInput}
+          placeholder="Enter amount..."
           placeholderTextColor="#888"
-          value={inputValue}
-          onChangeText={setInputValue}
+          value={paymentAmount}
+          onChangeText={setPaymentAmount}
+          keyboardType="numeric"
           editable={!!connectedDevice}
-          multiline
         />
         <TouchableOpacity
           style={[
-            styles.sendButton,
-            !inputValue.trim() && styles.sendButtonDisabled,
+            styles.sendPaymentButton,
+            (!paymentAmount.trim() || parseFloat(paymentAmount) <= 0) &&
+              styles.sendButtonDisabled,
           ]}
-          onPress={sendDataToPeripheral}
-          disabled={!inputValue.trim()}
+          onPress={() => sendPayment(paymentAmount)}
+          disabled={!paymentAmount.trim() || parseFloat(paymentAmount) <= 0}
         >
           <MaterialIcons
             name="send"
             size={24}
-            color={inputValue.trim() ? "white" : "#aaa"}
+            color={
+              paymentAmount.trim() && parseFloat(paymentAmount) > 0
+                ? "white"
+                : "#aaa"
+            }
           />
+          <Text style={styles.sendPaymentButtonText}>Send Payment</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Transaction History */}
+      <View style={styles.transactionContainer}>
+        <Text style={styles.transactionTitle}>Transaction History</Text>
+        <ScrollView style={styles.transactionList}>
+          {transactionHistory.length === 0 ? (
+            <View style={styles.emptyTransaction}>
+              <Feather
+                name="credit-card"
+                size={48}
+                color="#5E7BC7"
+                style={styles.emptyTransactionIcon}
+              />
+              <Text style={styles.emptyTransactionText}>
+                No transactions yet
+              </Text>
+              <Text style={styles.emptyTransactionSubtext}>
+                Start making payments to see transaction history
+              </Text>
+            </View>
+          ) : (
+            transactionHistory.map((txn, idx) => (
+              <View key={idx} style={styles.transactionItem}>
+                <View style={styles.transactionHeader}>
+                  <Text style={styles.transactionType}>
+                    {txn.type === "sent"
+                      ? "💰 Sent"
+                      : txn.type === "received"
+                      ? "💳 Received"
+                      : txn.type === "request"
+                      ? "📤 Request"
+                      : txn.type === "address"
+                      ? "📍 Address"
+                      : "✅ Acknowledgment"}
+                  </Text>
+                  <Text style={styles.transactionTime}>{txn.timestamp}</Text>
+                </View>
+                {txn.amount && (
+                  <Text style={styles.transactionAmount}>${txn.amount}</Text>
+                )}
+                {txn.address && (
+                  <Text style={styles.transactionAddress}>{txn.address}</Text>
+                )}
+                <View
+                  style={[
+                    styles.statusIndicator,
+                    txn.status === "completed" && styles.statusCompleted,
+                    txn.status === "pending" && styles.statusPending,
+                    txn.status === "failed" && styles.statusFailed,
+                  ]}
+                >
+                  <Text style={styles.statusText}>{txn.status}</Text>
+                </View>
+              </View>
+            ))
+          )}
+        </ScrollView>
       </View>
     </KeyboardAvoidingView>
   );
 
   return (
     <View style={styles.container}>
-      {showDeviceList ? renderDeviceList() : renderChat()}
+      {showDeviceList ? renderDeviceList() : renderPayment()}
+
+      {/* PIN Verification Modal */}
+      <Modal
+        visible={showPinModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={cancelPinVerification}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>PIN Verification</Text>
+            <TextInput
+              style={styles.pinInput}
+              placeholder="Enter PIN"
+              placeholderTextColor="#888"
+              value={pinInput}
+              onChangeText={setPinInput}
+              keyboardType="numeric"
+              secureTextEntry
+            />
+            {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalButton} onPress={verifyPin}>
+                <Text style={styles.modalButtonText}>Verify</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={cancelPinVerification}
+              >
+                <Text style={styles.modalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

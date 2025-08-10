@@ -8,47 +8,47 @@ import { requestPermissions } from "../hooks/useBLE";
 requestPermissions();
 
 export default function Index() {
-  const [mode, setMode] = useState<"central" | "peripheral">("central");
+  const [mode, setMode] = useState<"sender" | "receiver">("sender");
 
   return (
     <View style={styles.containerScreen}>
       {/* Mode Switcher as Tab Bar */}
       <View style={localStyles.tabBar}>
         <TouchableOpacity
-          style={[localStyles.tab, mode === "central" && localStyles.activeTab]}
-          onPress={() => setMode("central")}
+          style={[localStyles.tab, mode === "sender" && localStyles.activeTab]}
+          onPress={() => setMode("sender")}
           activeOpacity={0.8}
         >
           <Text
             style={[
               localStyles.tabText,
-              mode === "central" && localStyles.activeTabText,
+              mode === "sender" && localStyles.activeTabText,
             ]}
           >
-            CENTRAL
+            SENDER
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[
             localStyles.tab,
-            mode === "peripheral" && localStyles.activeTab,
+            mode === "receiver" && localStyles.activeTab,
           ]}
-          onPress={() => setMode("peripheral")}
+          onPress={() => setMode("receiver")}
           activeOpacity={0.8}
         >
           <Text
             style={[
               localStyles.tabText,
-              mode === "peripheral" && localStyles.activeTabText,
+              mode === "receiver" && localStyles.activeTabText,
             ]}
           >
-            PERIPHERAL
+            RECEIVER
           </Text>
         </TouchableOpacity>
       </View>
       {/* Main Content */}
       <View style={styles.scrollContainer}>
-        {mode === "central" ? <MainPage /> : <PeripheralPage />}
+        {mode === "sender" ? <MainPage /> : <PeripheralPage />}
       </View>
     </View>
   );
